@@ -14,13 +14,15 @@ export default function IncomingCallUI() {
   useEffect(() => {
     if (!ws) return;
 
-    ws.on("incoming_call", (payload: CallData) => {
+    const handleIncomingCall = (payload: CallData) => {
       setIncomingCall(payload);
       playRingtone();
-    });
+    };
+
+    ws.on("incoming_call", handleIncomingCall);
 
     return () => {
-      ws.off("incoming_call");
+      ws.off("incoming_call", handleIncomingCall);
     };
   }, [ws]);
 

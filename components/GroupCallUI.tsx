@@ -7,6 +7,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { PhoneOff, Mic, MicOff, Users } from 'lucide-react';
 import { GroupCallData } from '@/lib/agoraConfig';
+import { sanitizeChannelName } from '@/lib/urlHelper';
 
 interface GroupCallUIProps {
   groupCall: GroupCallData;
@@ -86,7 +87,7 @@ export default function GroupCallUI({ groupCall, onCallEnd }: GroupCallUIProps) 
         console.log('User unpublished:', user.uid);
       });
 
-      await client.join(appId, channelName, null, uid as UID);
+      await client.join(appId, sanitizeChannelName(channelName), null, uid as UID);
 
       const localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
       localAudioTrackRef.current = localAudioTrack;

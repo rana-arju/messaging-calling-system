@@ -7,6 +7,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { PhoneOff, Mic, MicOff } from 'lucide-react';
 import { CallData } from '@/lib/agoraConfig';
+import { stringToAgoraUid, sanitizeChannelName } from '@/lib/urlHelper';
 
 interface VoiceCallProps {
   callData: CallData;
@@ -29,6 +30,12 @@ export default function VoiceCallComponent({
   const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
   const channelName = callData.channelName;
   const uid = currentUser?.id;
+
+  useEffect(() => {
+    if (callData.rtcToken) {
+      rtcTokenRef.current = callData.rtcToken;
+    }
+  }, [callData.rtcToken]);
 
   useEffect(() => {
     initializeCall();
@@ -71,7 +78,7 @@ export default function VoiceCallComponent({
         console.log('User unpublished:', user.uid);
       });
 
-      await client.join(appId, channelName, rtcTokenRef.current || null, uid as UID);
+      await client.join(appId, sanitizeChannelName(channelName), rtcTokenRef.current || null, uid as UID);
 
       const localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
       localAudioTrackRef.current = localAudioTrack;

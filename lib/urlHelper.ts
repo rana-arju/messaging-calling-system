@@ -1,3 +1,30 @@
+function hashStringToNumber(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash) % 2147483647 || 1;
+}
+
+export function stringToAgoraUid(userId: string): number {
+  return hashStringToNumber(userId);
+}
+
+export function sanitizeChannelName(channelName: string): string {
+  const maxLength = 64;
+  let sanitized = channelName
+    .replace(/[^a-zA-Z0-9 !#$%&()+\-:;<=>?@\[\]^_{|}~,]/g, '')
+    .substring(0, maxLength);
+  
+  if (!sanitized) {
+    sanitized = 'channel';
+  }
+  
+  return sanitized;
+}
+
 export function getFullFileUrl(fileUrl?: string | null): string | undefined {
   if (!fileUrl) return undefined;
 

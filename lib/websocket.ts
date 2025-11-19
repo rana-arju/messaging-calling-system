@@ -60,7 +60,7 @@ export class WebSocketClient {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 3000;
-  private messageHandlers: Map<string, (data: any) => void> = new Map();
+  private messageHandlers: Map<string, Array<(data: any) => void>> = new Map();
   private userId: string | null = null;
 
   constructor(url: string, token: string) {
@@ -87,19 +87,19 @@ export class WebSocketClient {
           }
 
           const handlers = this.messageHandlers.get(message.type);
-          if (handlers && typeof handlers === 'function') {
-            handlers(message.payload);
+          if (handlers && Array.isArray(handlers)) {
+            handlers.forEach(handler => handler(message.payload));
           }
 
           const allHandlers = this.messageHandlers.get('*');
-          if (allHandlers && typeof allHandlers === 'function') {
-            allHandlers(message);
+          if (allHandlers && Array.isArray(allHandlers)) {
+            allHandlers.forEach(handler => handler(message));
           }
 
           if (message.type === 'connected' && message.payload.user) {
             const userInfoHandlers = this.messageHandlers.get('user_info');
-            if (userInfoHandlers && typeof userInfoHandlers === 'function') {
-              userInfoHandlers(message.payload.user);
+            if (userInfoHandlers && Array.isArray(userInfoHandlers)) {
+              userInfoHandlers.forEach(handler => handler(message.payload.user));
             }
           }
         };
@@ -138,11 +138,25 @@ export class WebSocketClient {
   }
 
   on(event: string, handler: (data: any) => void) {
-    this.messageHandlers.set(event, handler);
+    if (!this.messageHandlers.has(event)) {
+      this.messageHandlers.set(event, []);
+    }
+    const handlers = this.messageHandlers.get(event)!;
+    handlers.push(handler);
   }
 
-  off(event: string) {
-    this.messageHandlers.delete(event);
+  off(event: string, handler?: (data: any) => void) {
+    if (!handler) {
+      this.messageHandlers.delete(event);
+    } else {
+      const handlers = this.messageHandlers.get(event);
+      if (handlers) {
+        const index = handlers.indexOf(handler);
+        if (index > -1) {
+          handlers.splice(index, 1);
+        }
+      }
+    }
   }
 
   disconnect() {

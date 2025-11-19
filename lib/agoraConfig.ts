@@ -12,6 +12,7 @@ export interface CallData {
   callerId: string;
   receiverId: string;
   channelName: string;
+  rtcToken?: string;
   caller: {
     id: string;
     firstName: string;
@@ -36,6 +37,7 @@ export interface GroupCallData {
   groupId: string;
   initiatorId: string;
   channelName: string;
+  rtcToken?: string;
   status: string;
   participants: Array<{
     id: string;

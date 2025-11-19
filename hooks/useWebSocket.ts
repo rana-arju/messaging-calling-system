@@ -139,6 +139,38 @@ export function useWebSocket() {
           setError(errorMessage);
         });
 
+        ws.on('call_initiated', (payload) => {
+          console.log('Call initiated:', payload);
+        });
+
+        ws.on('incoming_call', (payload) => {
+          console.log('Incoming call:', payload);
+        });
+
+        ws.on('call_accepted', (payload) => {
+          console.log('Call accepted:', payload);
+        });
+
+        ws.on('call_rejected', (payload) => {
+          console.log('Call rejected:', payload);
+        });
+
+        ws.on('call_ended', (payload) => {
+          console.log('Call ended:', payload);
+        });
+
+        ws.on('group_call_initiated', (payload) => {
+          console.log('Group call initiated:', payload);
+        });
+
+        ws.on('incoming_group_call', (payload) => {
+          console.log('Incoming group call:', payload);
+        });
+
+        ws.on('group_call_ended', (payload) => {
+          console.log('Group call ended:', payload);
+        });
+
         await ws.connect();
         setWs(ws);
         wsRef.current = ws;

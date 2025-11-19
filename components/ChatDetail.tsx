@@ -45,51 +45,60 @@ export default function ChatDetail() {
     const { ws } = useChatStore.getState();
     if (!ws) return;
 
-    ws.on('call_initiated', (payload: CallData) => {
+    const handleCallInitiated = (payload: CallData) => {
       if (payload.callerId === currentUser?.id) {
         setActiveCall(payload);
       }
-    });
+    };
 
-    ws.on('incoming_call', (payload: CallData) => {
+    const handleIncomingCall = (payload: CallData) => {
       if (payload.receiverId === currentUser?.id) {
         setActiveCall(payload);
       }
-    });
+    };
 
-    ws.on('call_accepted', (payload: CallData) => {
+    const handleCallAccepted = (payload: CallData) => {
       setActiveCall(payload);
-    });
+    };
 
-    ws.on('call_rejected', (_payload: CallData) => {
+    const handleCallRejected = () => {
       setActiveCall(null);
-    });
+    };
 
-    ws.on('call_ended', (_payload: CallData) => {
+    const handleCallEnded = () => {
       setActiveCall(null);
-    });
+    };
 
-    ws.on('incoming_group_call', (payload: GroupCallData) => {
+    const handleIncomingGroupCall = (payload: GroupCallData) => {
       setActiveGroupCall(payload);
-    });
+    };
 
-    ws.on('group_call_initiated', (payload: GroupCallData) => {
+    const handleGroupCallInitiated = (payload: GroupCallData) => {
       setActiveGroupCall(payload);
-    });
+    };
 
-    ws.on('group_call_ended', (_payload: any) => {
+    const handleGroupCallEnded = () => {
       setActiveGroupCall(null);
-    });
+    };
+
+    ws.on('call_initiated', handleCallInitiated);
+    ws.on('incoming_call', handleIncomingCall);
+    ws.on('call_accepted', handleCallAccepted);
+    ws.on('call_rejected', handleCallRejected);
+    ws.on('call_ended', handleCallEnded);
+    ws.on('incoming_group_call', handleIncomingGroupCall);
+    ws.on('group_call_initiated', handleGroupCallInitiated);
+    ws.on('group_call_ended', handleGroupCallEnded);
 
     return () => {
-      ws.off('call_initiated');
-      ws.off('incoming_call');
-      ws.off('call_accepted');
-      ws.off('call_rejected');
-      ws.off('call_ended');
-      ws.off('incoming_group_call');
-      ws.off('group_call_initiated');
-      ws.off('group_call_ended');
+      ws.off('call_initiated', handleCallInitiated);
+      ws.off('incoming_call', handleIncomingCall);
+      ws.off('call_accepted', handleCallAccepted);
+      ws.off('call_rejected', handleCallRejected);
+      ws.off('call_ended', handleCallEnded);
+      ws.off('incoming_group_call', handleIncomingGroupCall);
+      ws.off('group_call_initiated', handleGroupCallInitiated);
+      ws.off('group_call_ended', handleGroupCallEnded);
     };
   }, [currentUser?.id]);
 
