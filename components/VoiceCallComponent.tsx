@@ -29,6 +29,7 @@ export default function VoiceCallComponent({
   const isMountedRef = useRef(true);
   const initializingRef = useRef(false);
   const isCleaningRef = useRef(false);
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
 
   const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
   const channelName = callData.channelName;
@@ -97,7 +98,17 @@ export default function VoiceCallComponent({
           if (mediaType === "audio") {
             if (user.audioTrack) {
               console.log(`Playing remote audio from user ${user.uid}`);
-              user.audioTrack.play();
+              if (!audioElementRef.current) {
+                const audioElement = document.createElement("audio");
+                audioElement.id = `remote-audio-${user.uid}`;
+                audioElement.autoplay = true;
+                audioElement.setAttribute("crossorigin", "anonymous");
+                audioElement.style.display = "none";
+                document.body.appendChild(audioElement);
+                audioElementRef.current = audioElement;
+              }
+              audioElementRef.current.volume = 1;
+              (user.audioTrack as any).play(audioElementRef.current);
               console.log(`Remote audio from user ${user.uid} is now playing`);
             } else {
               console.warn(`User ${user.uid} published audio but audioTrack is not available`);
@@ -177,6 +188,12 @@ export default function VoiceCallComponent({
       if (localAudioTrackRef.current) {
         localAudioTrackRef.current.close();
         localAudioTrackRef.current = null;
+      }
+      if (audioElementRef.current) {
+        audioElementRef.current.pause();
+        audioElementRef.current.src = '';
+        document.body.removeChild(audioElementRef.current);
+        audioElementRef.current = null;
       }
       if (clientRef.current) {
         try {

@@ -23,6 +23,7 @@ export default function GroupCallUI({ groupCall, onCallEnd }: GroupCallUIProps) 
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const localAudioTrackRef = useRef<any>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const audioElementsRef = useRef<Map<number | string, HTMLAudioElement>>(new Map());
 
   const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
   const channelName = groupCall.channelName;
@@ -79,7 +80,20 @@ export default function GroupCallUI({ groupCall, onCallEnd }: GroupCallUIProps) 
       client.on('user-published', async (user, mediaType) => {
         await client.subscribe(user, mediaType);
         if (mediaType === 'audio') {
-          user.audioTrack?.play();
+          if (user.audioTrack) {
+            let audioElement = audioElementsRef.current.get(user.uid);
+            if (!audioElement) {
+              audioElement = document.createElement('audio');
+              audioElement.id = `remote-audio-${user.uid}`;
+              audioElement.autoplay = true;
+              audioElement.setAttribute('crossorigin', 'anonymous');
+              audioElement.style.display = 'none';
+              document.body.appendChild(audioElement);
+              audioElementsRef.current.set(user.uid, audioElement);
+            }
+            audioElement.volume = 1;
+            (user.audioTrack as any).play(audioElement);
+          }
         }
       });
 
@@ -112,6 +126,18 @@ export default function GroupCallUI({ groupCall, onCallEnd }: GroupCallUIProps) 
     if (localAudioTrackRef.current) {
       localAudioTrackRef.current.close();
     }
+    audioElementsRef.current.forEach((audioElement) => {
+      try {
+        audioElement.pause();
+        audioElement.src = '';
+        if (audioElement.parentNode) {
+          document.body.removeChild(audioElement);
+        }
+      } catch (err) {
+        console.error('Error cleaning up audio element:', err);
+      }
+    });
+    audioElementsRef.current.clear();
     if (clientRef.current) {
       await clientRef.current.leave();
     }
