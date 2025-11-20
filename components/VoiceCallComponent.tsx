@@ -1,13 +1,13 @@
-'use client';
+"use client";
 
-import { useEffect, useState, useRef } from 'react';
-import AgoraRTC, { IAgoraRTCClient, UID } from 'agora-rtc-sdk-ng';
-import { useChatStore } from '@/lib/store';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import { Button } from '@/components/ui/button';
-import { PhoneOff, Mic, MicOff } from 'lucide-react';
-import { CallData } from '@/lib/agoraConfig';
-import { stringToAgoraUid, sanitizeChannelName } from '@/lib/urlHelper';
+import { useEffect, useState, useRef } from "react";
+import AgoraRTC, { IAgoraRTCClient, UID } from "agora-rtc-sdk-ng";
+import { useChatStore } from "@/lib/store";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { PhoneOff, Mic, MicOff } from "lucide-react";
+import { CallData } from "@/lib/agoraConfig";
+import { sanitizeChannelName } from "@/lib/urlHelper";
 
 interface VoiceCallProps {
   callData: CallData;
@@ -24,12 +24,16 @@ export default function VoiceCallComponent({
   const [error, setError] = useState<string | null>(null);
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const rtcTokenRef = useRef<string>('');
+  const rtcTokenRef = useRef<string>("");
   const localAudioTrackRef = useRef<any>(null);
+  const isMountedRef = useRef(true);
+  const initializingRef = useRef(false);
+  const isCleaningRef = useRef(false);
 
   const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
   const channelName = callData.channelName;
-  const uid = currentUser?.id;
+  // const uid = currentUser?.id;
+  const uid = parseInt(currentUser?.id || "0", 10);
 
   useEffect(() => {
     if (callData.rtcToken) {
@@ -38,11 +42,14 @@ export default function VoiceCallComponent({
   }, [callData.rtcToken]);
 
   useEffect(() => {
+    isMountedRef.current = true;
+    isCleaningRef.current = false;
     initializeCall();
     return () => {
+      isMountedRef.current = false;
       cleanupCall();
     };
-  }, [callData]);
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -54,57 +61,146 @@ export default function VoiceCallComponent({
   }, []);
 
   const initializeCall = async () => {
+    if (initializingRef.current || isCleaningRef.current) return;
+
     try {
+      initializingRef.current = true;
+
       if (!appId || !channelName || !uid) {
-        setError('Missing required parameters');
+        setError("Missing required parameters");
         return;
       }
 
-      const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+      const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
       clientRef.current = client;
 
-      client.on('connection-state-change', (curState) => {
-        console.log('Connection state:', curState);
-      });
-
-      client.on('user-published', async (user, mediaType) => {
-        await client.subscribe(user, mediaType);
-        if (mediaType === 'audio') {
-          user.audioTrack?.play();
+      client.on("connection-state-change", (curState) => {
+        console.log("Connection state changed:", curState);
+        if (curState === "CONNECTED") {
+          console.log("Successfully connected to Agora channel");
+        } else if (curState === "DISCONNECTED") {
+          console.log("Disconnected from Agora channel");
         }
       });
 
-      client.on('user-unpublished', (user) => {
-        console.log('User unpublished:', user.uid);
+      client.on("user-published", async (user, mediaType) => {
+        console.log(`User ${user.uid} published ${mediaType}`);
+        if (!isMountedRef.current || isCleaningRef.current) {
+          console.log("Component unmounted or cleaning, skipping subscribe");
+          return;
+        }
+        try {
+          console.log(`Subscribing to ${mediaType} from user ${user.uid}`);
+          await client.subscribe(user, mediaType);
+          console.log(`Successfully subscribed to ${mediaType} from user ${user.uid}`);
+          
+          if (mediaType === "audio") {
+            if (user.audioTrack) {
+              console.log(`Playing remote audio from user ${user.uid}`);
+              user.audioTrack.play();
+              console.log(`Remote audio from user ${user.uid} is now playing`);
+            } else {
+              console.warn(`User ${user.uid} published audio but audioTrack is not available`);
+            }
+          }
+        } catch (subErr: any) {
+          if (!subErr?.message?.includes("OPERATION_ABORTED")) {
+            console.error(`Subscribe error for user ${user.uid}:`, subErr);
+          }
+        }
       });
 
-      await client.join(appId, sanitizeChannelName(channelName), rtcTokenRef.current || null, uid as UID);
+      client.on("user-unpublished", (user, mediaType) => {
+        console.log("User unpublished:", user.uid, "mediaType:", mediaType);
+        if (mediaType === "audio" && user.audioTrack) {
+          user.audioTrack.stop();
+        }
+      });
 
-      const localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      if (!isMountedRef.current || isCleaningRef.current) return;
+      console.log("Joining channel:", sanitizeChannelName(channelName), "with UID:", uid);
+      await client.join(
+        appId,
+        sanitizeChannelName(channelName),
+        rtcTokenRef.current || null,
+        uid as UID
+      );
+      console.log("Successfully joined channel");
+
+      if (!isMountedRef.current || isCleaningRef.current) return;
+      
+      console.log("Creating microphone audio track...");
+      let localAudioTrack;
+      try {
+        localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+        console.log("Local audio track created successfully:", localAudioTrack);
+      } catch (trackErr: any) {
+        console.error("Failed to create microphone track:", trackErr);
+        throw new Error(`Microphone access failed: ${trackErr?.message || 'Unknown error'}`);
+      }
+
+      if (!isMountedRef.current || isCleaningRef.current) {
+        localAudioTrack.close();
+        return;
+      }
+
       localAudioTrackRef.current = localAudioTrack;
+      localAudioTrack.setEnabled(true);
+      
+      console.log("Publishing local audio track to channel...");
       await client.publish([localAudioTrack]);
+      console.log("Local audio track published successfully");
 
-      localAudioTrack.setVolume(100);
-      setIsMicOn(true);
-    } catch (err) {
-      console.error('Error initializing call:', err);
-      setError(err instanceof Error ? err.message : 'Failed to initialize call');
+      if (isMountedRef.current && !isCleaningRef.current) {
+        localAudioTrack.setVolume(100);
+        setIsMicOn(true);
+        console.log("Local audio track volume set to 100 and mic enabled");
+      }
+    } catch (err: any) {
+      if (isCleaningRef.current) return;
+      if (err?.message?.includes("OPERATION_ABORTED")) return;
+
+      if (isMountedRef.current) {
+        console.error("Error initializing call:", err);
+        setError(
+          err instanceof Error ? err.message : "Failed to initialize call"
+        );
+      }
+    } finally {
+      initializingRef.current = false;
     }
   };
 
   const cleanupCall = async () => {
-    if (localAudioTrackRef.current) {
-      localAudioTrackRef.current.close();
-    }
-    if (clientRef.current) {
-      await clientRef.current.leave();
+    isCleaningRef.current = true;
+    try {
+      if (localAudioTrackRef.current) {
+        localAudioTrackRef.current.close();
+        localAudioTrackRef.current = null;
+      }
+      if (clientRef.current) {
+        try {
+          await clientRef.current.leave();
+        } catch (leaveErr: any) {
+          if (!leaveErr?.message?.includes("OPERATION_ABORTED")) {
+            console.error("Error leaving channel:", leaveErr);
+          }
+        }
+        clientRef.current = null;
+      }
+    } catch (err: any) {
+      if (!err?.message?.includes("OPERATION_ABORTED")) {
+        console.error("Error during cleanup:", err);
+      }
+    } finally {
+      isCleaningRef.current = false;
     }
   };
 
   const handleEndCall = async () => {
     if (ws) {
       ws.send({
-        type: 'call_end',
+        type: "call_end",
         payload: {
           callId: callData.id,
           duration: callDuration,
@@ -117,7 +213,7 @@ export default function VoiceCallComponent({
   };
 
   const toggleMic = async () => {
-    if (localAudioTrackRef.current) {
+    if (localAudioTrackRef.current && !isCleaningRef.current) {
       const enabled = !isMicOn;
       localAudioTrackRef.current.setEnabled(enabled);
       setIsMicOn(enabled);
@@ -143,7 +239,8 @@ export default function VoiceCallComponent({
         </h2>
 
         <p className="text-gray-300 text-lg">
-          {Math.floor(callDuration / 60)}:{String(callDuration % 60).padStart(2, '0')}
+          {Math.floor(callDuration / 60)}:
+          {String(callDuration % 60).padStart(2, "0")}
         </p>
 
         {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
@@ -155,8 +252,8 @@ export default function VoiceCallComponent({
           size="lg"
           className={`rounded-full w-16 h-16 p-0 ${
             isMicOn
-              ? 'bg-blue-500 hover:bg-blue-600'
-              : 'bg-gray-600 hover:bg-gray-700'
+              ? "bg-blue-500 hover:bg-blue-600"
+              : "bg-gray-600 hover:bg-gray-700"
           }`}
         >
           {isMicOn ? <Mic size={24} /> : <MicOff size={24} />}
