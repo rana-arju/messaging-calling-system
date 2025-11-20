@@ -22,51 +22,65 @@ export default function VoiceCallComponent({
   const [isMicOn, setIsMicOn] = useState(true);
   const [callDuration, setCallDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
+
   const clientRef = useRef<IAgoraRTCClient | null>(null);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const rtcTokenRef = useRef<string>("");
   const localAudioTrackRef = useRef<any>(null);
-  const isMountedRef = useRef(true);
+  const rtcTokenRef = useRef<string>(callData.rtcToken || "");
   const initializingRef = useRef(false);
   const isCleaningRef = useRef(false);
-  const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
-  const channelName = callData.channelName;
-  // const uid = currentUser?.id;
-  const uid = parseInt(currentUser?.id || "0", 10);
+  const channelName = sanitizeChannelName(callData.channelName);
+  const uid: UID = String(
+    currentUser?.id || Math.floor(Math.random() * 100000)
+  );
 
+  // Initialize call on mount
   useEffect(() => {
-    if (callData.rtcToken) {
-      rtcTokenRef.current = callData.rtcToken;
+    if (
+      !initializingRef.current &&
+      !isCleaningRef.current &&
+      !clientRef.current
+    ) {
+      void initializeCall();
     }
-  }, [callData.rtcToken]);
 
-  useEffect(() => {
-    isMountedRef.current = true;
-    isCleaningRef.current = false;
-    initializeCall();
     return () => {
-      isMountedRef.current = false;
-      cleanupCall();
+      void cleanupCall();
     };
   }, []);
 
+  // Call duration timer
   useEffect(() => {
-    const interval = setInterval(() => {
-      setCallDuration((prev) => prev + 1);
-    }, 1000);
+    timerRef.current = setInterval(
+      () => setCallDuration((prev) => prev + 1),
+      1000
+    );
+    return () => clearInterval(timerRef.current!);
+  }, []);
 
-    timerRef.current = interval;
-    return () => clearInterval(interval);
+  // Reset refs on logout/login
+  useEffect(() => {
+    return () => {
+      // On unmount (logout or navigation), reset all refs
+      initializingRef.current = false;
+      isCleaningRef.current = false;
+      rtcTokenRef.current = "";
+      localAudioTrackRef.current = null;
+      clientRef.current = null;
+      clearInterval(timerRef.current!);
+    };
   }, []);
 
   const initializeCall = async () => {
-    if (initializingRef.current || isCleaningRef.current) return;
+    if (initializingRef.current || isCleaningRef.current || clientRef.current)
+      return;
+
+    initializingRef.current = true;
+    setError(null);
 
     try {
-      initializingRef.current = true;
-
       if (!appId || !channelName || !uid) {
         setError("Missing required parameters");
         return;
@@ -75,106 +89,44 @@ export default function VoiceCallComponent({
       const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
       clientRef.current = client;
 
-      client.on("connection-state-change", (curState) => {
-        console.log("Connection state changed:", curState);
-        if (curState === "CONNECTED") {
-          console.log("Successfully connected to Agora channel");
-        } else if (curState === "DISCONNECTED") {
-          console.log("Disconnected from Agora channel");
-        }
-      });
+      client.on("connection-state-change", (state) =>
+        console.log("Connection state:", state)
+      );
 
       client.on("user-published", async (user, mediaType) => {
-        console.log(`User ${user.uid} published ${mediaType}`);
-        if (!isMountedRef.current || isCleaningRef.current) {
-          console.log("Component unmounted or cleaning, skipping subscribe");
-          return;
-        }
-        try {
-          console.log(`Subscribing to ${mediaType} from user ${user.uid}`);
-          await client.subscribe(user, mediaType);
-          console.log(`Successfully subscribed to ${mediaType} from user ${user.uid}`);
-          
-          if (mediaType === "audio") {
-            if (user.audioTrack) {
-              console.log(`Playing remote audio from user ${user.uid}`);
-              if (!audioElementRef.current) {
-                const audioElement = document.createElement("audio");
-                audioElement.id = `remote-audio-${user.uid}`;
-                audioElement.autoplay = true;
-                audioElement.setAttribute("crossorigin", "anonymous");
-                audioElement.style.display = "none";
-                document.body.appendChild(audioElement);
-                audioElementRef.current = audioElement;
-              }
-              audioElementRef.current.volume = 1;
-              (user.audioTrack as any).play(audioElementRef.current);
-              console.log(`Remote audio from user ${user.uid} is now playing`);
-            } else {
-              console.warn(`User ${user.uid} published audio but audioTrack is not available`);
-            }
-          }
-        } catch (subErr: any) {
-          if (!subErr?.message?.includes("OPERATION_ABORTED")) {
-            console.error(`Subscribe error for user ${user.uid}:`, subErr);
-          }
+        if (mediaType === "audio" && user.audioTrack) {
+          console.log(`Playing remote audio from UID ${user.uid}`);
+          user.audioTrack.play(); // SDK handles audio element internally
         }
       });
 
       client.on("user-unpublished", (user, mediaType) => {
-        console.log("User unpublished:", user.uid, "mediaType:", mediaType);
         if (mediaType === "audio" && user.audioTrack) {
           user.audioTrack.stop();
         }
       });
 
-      if (!isMountedRef.current || isCleaningRef.current) return;
-      console.log("Joining channel:", sanitizeChannelName(channelName), "with UID:", uid);
-      await client.join(
-        appId,
-        sanitizeChannelName(channelName),
-        rtcTokenRef.current || null,
-        uid as UID
-      );
+      console.log("Joining channel:", channelName, "UID:", uid);
+      await client.join(appId, channelName, rtcTokenRef.current, uid);
       console.log("Successfully joined channel");
 
-      if (!isMountedRef.current || isCleaningRef.current) return;
-      
-      console.log("Creating microphone audio track...");
-      let localAudioTrack;
-      try {
-        localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
-        console.log("Local audio track created successfully:", localAudioTrack);
-      } catch (trackErr: any) {
-        console.error("Failed to create microphone track:", trackErr);
-        throw new Error(`Microphone access failed: ${trackErr?.message || 'Unknown error'}`);
-      }
-
-      if (!isMountedRef.current || isCleaningRef.current) {
-        localAudioTrack.close();
-        return;
-      }
-
+      const localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
       localAudioTrackRef.current = localAudioTrack;
-      localAudioTrack.setEnabled(true);
-      
-      console.log("Publishing local audio track to channel...");
       await client.publish([localAudioTrack]);
-      console.log("Local audio track published successfully");
-
-      if (isMountedRef.current && !isCleaningRef.current) {
-        localAudioTrack.setVolume(100);
-        setIsMicOn(true);
-        console.log("Local audio track volume set to 100 and mic enabled");
-      }
+      localAudioTrack.setEnabled(true);
+      setIsMicOn(true);
+      console.log("Local audio track published");
     } catch (err: any) {
-      if (isCleaningRef.current) return;
-      if (err?.message?.includes("OPERATION_ABORTED")) return;
-
-      if (isMountedRef.current) {
-        console.error("Error initializing call:", err);
+      console.error("Agora join failed:", err);
+      if (err?.message?.includes("invalid token")) {
+        setError("Token expired or invalid. Please refresh token and retry.");
+      } else if (err?.message?.includes("OPERATION_ABORTED")) {
         setError(
-          err instanceof Error ? err.message : "Failed to initialize call"
+          "Operation aborted, likely due to previous join being canceled."
+        );
+      } else {
+        setError(
+          err instanceof Error ? err.message : "Call initialization failed"
         );
       }
     } finally {
@@ -183,34 +135,29 @@ export default function VoiceCallComponent({
   };
 
   const cleanupCall = async () => {
+    if (isCleaningRef.current) return;
     isCleaningRef.current = true;
+
     try {
       if (localAudioTrackRef.current) {
         localAudioTrackRef.current.close();
         localAudioTrackRef.current = null;
       }
-      if (audioElementRef.current) {
-        audioElementRef.current.pause();
-        audioElementRef.current.src = '';
-        document.body.removeChild(audioElementRef.current);
-        audioElementRef.current = null;
-      }
+
       if (clientRef.current) {
         try {
           await clientRef.current.leave();
-        } catch (leaveErr: any) {
-          if (!leaveErr?.message?.includes("OPERATION_ABORTED")) {
-            console.error("Error leaving channel:", leaveErr);
-          }
+        } catch (err) {
+          console.error("Error leaving channel:", err);
         }
         clientRef.current = null;
       }
-    } catch (err: any) {
-      if (!err?.message?.includes("OPERATION_ABORTED")) {
-        console.error("Error during cleanup:", err);
-      }
     } finally {
       isCleaningRef.current = false;
+      clearInterval(timerRef.current!);
+      timerRef.current = null;
+      setCallDuration(0);
+      setIsMicOn(true);
     }
   };
 
@@ -218,19 +165,15 @@ export default function VoiceCallComponent({
     if (ws) {
       ws.send({
         type: "call_end",
-        payload: {
-          callId: callData.id,
-          duration: callDuration,
-        },
+        payload: { callId: callData.id, duration: callDuration },
       });
     }
-
     await cleanupCall();
     onCallEnd();
   };
 
-  const toggleMic = async () => {
-    if (localAudioTrackRef.current && !isCleaningRef.current) {
+  const toggleMic = () => {
+    if (localAudioTrackRef.current) {
       const enabled = !isMicOn;
       localAudioTrackRef.current.setEnabled(enabled);
       setIsMicOn(enabled);
